@@ -8,7 +8,7 @@ def fetch_api_data(api_key):
     try:
         r = requests.get(url, timeout=8)
         data = r.json()
-        if "Time Series FX (1min)" not in data: return pd.DataFrame(), "LIMIT"
+        if "Time Series FX (1min)" not in data: return pd.DataFrame(), "LIMIT/WAIT"
         ts = data['Time Series FX (1min)']
         df = pd.DataFrame.from_dict(ts, orient='index').astype(float).sort_index()
         df.columns = ['Open', 'High', 'Low', 'Close']
@@ -16,10 +16,9 @@ def fetch_api_data(api_key):
         df['Returns'] = df['Close'].pct_change()
         return df.dropna(), "LIVE"
     except:
-        return pd.DataFrame(), "ERROR"
+        return pd.DataFrame(), "OFFLINE"
 
 def run_ia_strategy(df):
-    # Lógica de Classificação Neural
     df['SMA_10'] = df['Close'].rolling(10).mean()
     df['Z'] = (df['Close'] - df['SMA_10']) / (df['Close'].rolling(10).std() + 1e-9)
     X = df[['Z']].fillna(0).tail(100)
@@ -29,7 +28,6 @@ def run_ia_strategy(df):
     return model.predict_proba(X.tail(1))[0][1]
 
 def calculate_metrics(df):
-    # Saturação de Wyckoff e Volatilidade
     delta = abs(df['Close'].diff().iloc[-1]) + 1e-9
     effort = df['Volume'].iloc[-1] / delta
     avg_effort = (df['Volume'] / (abs(df['Close'].diff()) + 1e-9)).rolling(20).mean().iloc[-1]
@@ -38,6 +36,12 @@ def calculate_metrics(df):
     return saturated, atr
 
 def monte_carlo_target(price, vol):
-    # Projeção Estatística de TP3
     paths = price * (1 + np.random.normal(0, vol, (1000, 60))).cumprod(axis=1)
     return np.percentile(paths[:, -1], 75)
+
+def calculate_risk_reward(price, target, stop):
+    risco = abs(price - stop)
+    retorno = abs(target - price)
+    if risco <= 1e-9: return 0, False
+    rr_ratio = retorno / risco
+    return rr_ratio, (rr_ratio >= 2.0)
