@@ -1,38 +1,32 @@
 import streamlit as st
 import time
 from datetime import datetime
-from engine import get_yfinance_data, get_alpha_vantage_sentiment, calculate_sentinel_signals
-from interface import apply_ui_sentinel, render_dashboard
+from engine import get_data_portal, analyze_sentinel_v8
+from interface import apply_ui_v8, render_didactic_hud
 
-st.set_page_config(page_title="AURAXIS SENTINEL v7", layout="wide")
-apply_ui_sentinel()
+st.set_page_config(page_title="AURAXIS ORÁCULO v8", layout="wide")
+apply_ui_v8()
 
-# Barra lateral para controle e chave
 API_KEY = "101SM0EBPEQUHEHJ"
-TICKER = "EURUSD=X"
-
-# Placeholder para atualização em tempo real sem refresh de página
 placeholder = st.empty()
 
-# Loop de 5 segundos
 while True:
     with placeholder.container():
-        df = get_yfinance_data(TICKER)
+        df, pips, status_api = get_data_portal(API_KEY)
         
         if not df.empty:
-            sentiment = get_alpha_vantage_sentiment(API_KEY)
-            price, target, stop, z_score = calculate_sentinel_signals(df)
+            p_atual, alvo, stop, prob, estado, z_score = analyze_sentinel_v8(df)
             
-            # Cabeçalho de Status
-            st.markdown(f"<div class='status-bar'>HIFI_DATA_ACTIVE | TICK_RATE: 5s | SYNC: {datetime.now().strftime('%H:%M:%S')}</div>", unsafe_allow_html=True)
+            # Rodapé Técnico Discreto
+            st.caption(f"Sincronização: {status_api} | Última Atualização: {datetime.now().strftime('%H:%M:%S')} | Tick: 5s")
             
-            # Dashboard
-            render_dashboard(price, target, stop, z_score, sentiment)
+            # Dashboard Principal
+            render_didactic_hud(p_atual, pips, alvo, stop, prob, estado, z_score)
             
-            # Lógica de Gatilho
-            if z_score > 1.2 and sentiment == "BULLISH":
-                st.success(f"🚀 SINAL CONFIRMADO: COMPRA | TP: {target:.5f} | SL: {stop:.5f}")
+            # Explicação Didática Adicional
+            if abs(z_score) > 1.5:
+                st.info(f"💡 Dica do Analista: O mercado está se afastando da média com força. {"A pressão compradora é dominante." if z_score > 0 else "A pressão vendedora é dominante."}")
         else:
-            st.warning("Aguardando fluxo de dados do yfinance...")
+            st.warning("⚠️ Tentando reconectar ao fluxo de dados do mercado...")
             
     time.sleep(5)
