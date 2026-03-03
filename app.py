@@ -1,33 +1,48 @@
 import streamlit as st
 import time
 from datetime import datetime
-from engine import get_data_portal, analyze_sentinel_v8
-from interface import apply_ui_v8, render_didactic_hud
+from engine import get_data_v10, calculate_radar
+from interface import apply_ui_v10, render_radar_block
 
-st.set_page_config(page_title="AURAXIS ORÁCULO v8", layout="wide", page_icon="🔮")
-apply_ui_v8()
+st.set_page_config(page_title="AURAXIS V10 RADAR", layout="wide")
+apply_ui_v10()
 
 placeholder = st.empty()
 
 while True:
     with placeholder.container():
-        df, pips, status_api = get_data_portal()
+        df, pips = get_data_v10()
         
         if not df.empty:
-            p_atual, alvo, stop, prob, estado, z_score = analyze_sentinel_v8(df)
+            p_atual = float(df['close'].iloc[-1])
             
-            # Cabeçalho Técnico
-            st.caption(f"Status: {status_api} | Sincronia: {datetime.now().strftime('%H:%M:%S')} | Refresh: 5s")
+            # 1. Primeiro detectamos a Tendência de POSITION (O Radar Institucional)
+            pos_signal = calculate_radar(df, "POSITION", 0)
+            trend_dir = 0
+            if pos_signal:
+                trend_dir = 1 if pos_signal['tipo'] == "COMPRA" else -1
             
-            # Dashboard Didático
-            render_didactic_hud(p_atual, pips, alvo, stop, prob, estado, z_score)
+            # 2. Renderizamos o HUD Superior
+            cor_pips = "#3fb950" if pips >= 0 else "#f85149"
+            st.markdown(f"""
+                <div class='header-radar'>
+                    <h1 style='margin:0; font-family:monospace;'>{p_atual:.5f}</h1>
+                    <span style='color:{cor_pips}; font-weight:bold;'>{"+" if pips>=0 else ""}{pips:.1f} PIPS HOJE</span>
+                </div>
+            """, unsafe_allow_html=True)
             
-            # Barra de Força (Visual)
-            st.write("---")
-            st.write("Força de Inércia (Z-Score)")
-            st.progress(min(max((z_score + 3) / 6, 0.0), 1.0))
+            st.write("")
             
+            # 3. Grade de Operações (Fractal)
+            c1, c2, c3, c4 = st.columns(4)
+            
+            with c1: render_radar_block("SCALPER (1M/5M)", calculate_radar(df, "SCALPER", trend_dir))
+            with c2: render_radar_block("DAY TRADE (15M/1H)", calculate_radar(df, "DAY", trend_dir))
+            with c3: render_radar_block("SWING (4H/DIÁRIO)", calculate_radar(df, "SWING", trend_dir))
+            with c4: render_radar_block("POSITION (SEMANAL)", pos_signal)
+            
+            st.caption(f"Radar V10 em Operação | Sincronia: {datetime.now().strftime('%H:%M:%S')}")
         else:
-            st.error("Conectando ao fluxo de dados... Verifique sua conexão.")
+            st.warning("📡 Conectando aos Satélites de Dados Financeiros...")
             
     time.sleep(5)
