@@ -1,47 +1,44 @@
 import pandas as pd
 import numpy as np
+import yfinance as yf
 import requests
-from sklearn.ensemble import RandomForestClassifier
 
-def fetch_api_data(api_key):
-    url = f'https://www.alphavantage.co/query?function=FX_INTRADAY&from_symbol=EUR&to_symbol=USD&interval=1min&apikey={api_key}'
+def get_yfinance_data(ticker="EURUSD=X"):
+    """Puxa dados em tempo real com precisão de 1 minuto e histórico de 2 dias"""
     try:
-        r = requests.get(url, timeout=8)
-        data = r.json()
-        if "Time Series FX (1min)" not in data: return pd.DataFrame(), "LIMIT/WAIT"
-        ts = data['Time Series FX (1min)']
-        df = pd.DataFrame.from_dict(ts, orient='index').astype(float).sort_index()
-        df.columns = ['Open', 'High', 'Low', 'Close']
-        df['Volume'] = np.random.randint(200, 600, len(df))
-        df['Returns'] = df['Close'].pct_change()
-        return df.dropna(), "LIVE"
+        data = yf.download(ticker, period="2d", interval="1m", progress=False)
+        if data.empty: return pd.DataFrame()
+        # Ajuste para garantir que as colunas sejam simples
+        df = data[['Open', 'High', 'Low', 'Close']].copy()
+        df.columns = ['open', 'high', 'low', 'close']
+        return df
     except:
-        return pd.DataFrame(), "OFFLINE"
+        return pd.DataFrame()
 
-def run_ia_strategy(df):
-    df['SMA_10'] = df['Close'].rolling(10).mean()
-    df['Z'] = (df['Close'] - df['SMA_10']) / (df['Close'].rolling(10).std() + 1e-9)
-    X = df[['Z']].fillna(0).tail(100)
-    y = np.where(df['Returns'].shift(-1) > 0, 1, 0)[-100:]
-    model = RandomForestClassifier(n_estimators=50)
-    model.fit(X, y)
-    return model.predict_proba(X.tail(1))[0][1]
+def get_alpha_vantage_sentiment(api_key):
+    """Usa Alpha Vantage apenas para conferir o Momentum Global (Oráculo)"""
+    url = f'https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=EURUSD&apikey={api_key}'
+    try:
+        r = requests.get(url, timeout=3)
+        data = r.json()
+        change = float(data['Global Quote']['10. change percent'].replace('%', ''))
+        return "BULLISH" if change > 0 else "BEARISH"
+    except:
+        return "NEUTRAL"
 
-def calculate_metrics(df):
-    delta = abs(df['Close'].diff().iloc[-1]) + 1e-9
-    effort = df['Volume'].iloc[-1] / delta
-    avg_effort = (df['Volume'] / (abs(df['Close'].diff()) + 1e-9)).rolling(20).mean().iloc[-1]
-    saturated = effort > (avg_effort * 2.5)
-    atr = (df['High'] - df['Low']).rolling(14).mean().iloc[-1]
-    return saturated, atr
-
-def monte_carlo_target(price, vol):
-    paths = price * (1 + np.random.normal(0, vol, (1000, 60))).cumprod(axis=1)
-    return np.percentile(paths[:, -1], 75)
-
-def calculate_risk_reward(price, target, stop):
-    risco = abs(price - stop)
-    retorno = abs(target - price)
-    if risco <= 1e-9: return 0, False
-    rr_ratio = retorno / risco
-    return rr_ratio, (rr_ratio >= 2.0)
+def calculate_sentinel_signals(df):
+    """Lógica de Volatilidade e Probabilidade"""
+    close = df['close'].iloc[-1]
+    returns = df['close'].pct_change().dropna()
+    
+    # ATR para Stop dinâmico
+    atr = (df['high'] - df['low']).rolling(14).mean().iloc[-1]
+    
+    # Monte Carlo (1000 caminhos para os próximos 5 min)
+    sims = close * (1 + np.random.normal(returns.mean(), returns.std(), (1000, 5))).cumprod(axis=1)
+    target = np.percentile(sims[:, -1], 80)
+    
+    # Z-Score (Força do Movimento)
+    z_score = (close - df['close'].rolling(20).mean().iloc[-1]) / (df['close'].rolling(20).std().iloc[-1] + 1e-9)
+    
+    return close, target, close - (atr * 2.5), z_score
